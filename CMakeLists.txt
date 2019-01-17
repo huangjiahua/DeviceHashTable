@@ -6,7 +6,8 @@ cmake_minimum_required (VERSION 3.10)
 
 project (DeviceHashTable CUDA CXX)
 
-
+# C4819 will happen on windows due to language encoding issue, it won't affect anything.
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler \"/wd 4819\"" )
 
 
 # Include sub-projects.

@@ -32,6 +32,10 @@ public:
     __device__ uint32_t maxKeySize() const;
     __device__ uint32_t maxValueSize() const;
     __device__ uint32_t bucketCount() const;
+    __device__ void *bucketInfoAddress() const;
+    __device__ void *elementInfoAddress() const;
+    __device__ void *dataAddress() const;
+    __device__ void *overflowDataAddress() const;
 
     // Inserting function
     __device__ IstRet insert(const DeviceDataBlock &key, const DeviceDataBlock &value);
@@ -40,8 +44,9 @@ public:
 };
 
 
-// Constructor
-__device__ void DeviceHashTable::setup (uint32_t *nums, char **ptrs) {
+__device__ 
+void 
+DeviceHashTable::setup (uint32_t *nums, char **ptrs) {
     _bkt_cnt = nums[0];
     _bkt_elem_cnt = nums[1];
     _max_key_size = nums[2];
@@ -58,7 +63,10 @@ __device__ void DeviceHashTable::setup (uint32_t *nums, char **ptrs) {
 __device__ 
 uint32_t
 DeviceHashTable::memorySize() const {
-	return 0;
+    return (sizeof(DeviceHashTable) + 
+            (_bkt_cnt + 1) * sizeof(uint32_t) + 
+            (_max_elem_size + OVERFLOW_COUNT) * 2 * sizeof(uint32_t) + 
+            (_max_elem_size + OVERFLOW_COUNT) * (_max_elem_size));
 }
 
 __device__ 
@@ -85,15 +93,47 @@ DeviceHashTable::bucketCount() const {
     return (_bkt_cnt);
 }
 
-__global__ void setupKernel(DeviceHashTable *dht, uint32_t *nums, char **ptrs) {
+
+__device__ 
+void *
+DeviceHashTable::bucketInfoAddress() const {
+    return reinterpret_cast<void *>(_bkt_info_ptr);
+}
+
+__device__ 
+void *
+DeviceHashTable::elementInfoAddress() const {
+    return reinterpret_cast<void *>(_elem_info_ptr);
+}
+
+__device__ 
+void *
+DeviceHashTable::dataAddress() const {
+    return reinterpret_cast<void *>(_data_ptr);
+}
+
+__device__ 
+void *
+DeviceHashTable::overflowDataAddress() const {
+    return reinterpret_cast<void *>(_overflow_data_ptr);
+}
+
+
+__global__ 
+void 
+setupKernel(DeviceHashTable *dht, uint32_t *nums, char **ptrs) {
     dht->setup(nums, ptrs);
 }
 
-void DestroyDeviceHashTable(DeviceHashTable *dht) {
+__host__
+void 
+DestroyDeviceHashTable(DeviceHashTable *dht) {
     cudaFree(dht);
 }
 
-void CreateDeviceHashTable(
+__host__
+void 
+CreateDeviceHashTable(
       DeviceHashTable *&dht, 
       uint32_t max_elem_cnt, uint32_t bkt_cnt, 
       uint32_t max_key_size, uint32_t max_val_size) {
