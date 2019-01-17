@@ -1,9 +1,16 @@
 ﻿# CMakeList.txt : Top-level CMake project file, do global configuration
 # and include sub-projects here.
 #
-cmake_minimum_required (VERSION 3.8)
+cmake_minimum_required (VERSION 3.10)
 
-project ("DeviceHashTable")
+
+project (DeviceHashTable CUDA CXX)
+
+
+
 
 # Include sub-projects.
-add_subdirectory ("DeviceHashTable")
+add_subdirectory (src)
+add_subdirectory (test)
+
+
