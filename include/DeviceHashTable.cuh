@@ -6,6 +6,24 @@
 
 #define OVERFLOW_COUNT (1000)
 
+__device__
+int 
+datacmp(const unsigned char *l_dat, const unsigned char *r_dat, uint32_t len) {
+    int match = 0;
+    uint32_t i = 0;
+    uint32_t done = 0;
+    while ( i < len && match == 0 && !done ) {
+        if ( l_dat[i] != r_dat[i] ) {
+            match = i + 1;
+            if ( (int)l_dat[i] - (int)r_dat[i] < 0 ) {
+                match = 0 - (i + 1);
+            }
+        }
+        i++;
+    }
+    return match;
+}
+
 enum IstRet {
     SUCCESSUL = 0,
     UNKNOWN,
@@ -20,11 +38,32 @@ struct DeviceDataBlock {
     uint32_t size; 
 };
 
+struct DeviceHashTableInsertBlock {
+    unsigned char *key_buf;
+	unsigned char *val_buf;
+	IstRet *ret_buf;
+    uint32_t *key_size_buf;
+	uint32_t *val_size_buf;
+    uint32_t max_key_size;
+	uint32_t max_val_size;
+	uint32_t len;
+};
+
+struct DeviceHashTableFindBlock {
+    unsigned char *key_buf;
+	unsigned char *val_buf;
+    uint32_t *key_size_buf;
+	uint32_t *val_size_buf;
+    uint32_t max_key_size;
+	uint32_t max_val_size;
+	uint32_t len;
+};
+
 class DeviceHashTable {
 public:
     typedef uint32_t size_type;
 private:
-    unsigned char *_data_ptr, *_overflow_data_ptr;
+    unsigned char *_data_ptr;
     size_type *_elem_info_ptr, *_bkt_info_ptr;
     size_type _bkt_cnt, _bkt_elem_cnt, _max_key_size, _max_elem_size;
 
@@ -44,7 +83,6 @@ public:
     __device__ void *bucketInfoAddress() const;
     __device__ void *elementInfoAddress() const;
     __device__ void *dataAddress() const;
-    __device__ void *overflowDataAddress() const;
 
     // Inserting function
     __device__ IstRet insert(const DeviceDataBlock &key, const DeviceDataBlock &value);
@@ -62,7 +100,6 @@ DeviceHashTable::setup (uint32_t *nums, unsigned char **ptrs) {
     _max_elem_size = nums[2] + nums[3];
 
     _data_ptr = ptrs[2];
-    _overflow_data_ptr = ptrs[3];
     _elem_info_ptr = reinterpret_cast<uint32_t *>(ptrs[1]);
     _bkt_info_ptr = reinterpret_cast<uint32_t *>(ptrs[0]);
 
@@ -121,11 +158,6 @@ DeviceHashTable::dataAddress() const {
     return reinterpret_cast<void *>(_data_ptr);
 }
 
-__device__ 
-void *
-DeviceHashTable::overflowDataAddress() const {
-    return reinterpret_cast<void *>(_overflow_data_ptr);
-}
 
 
 __device__ 
@@ -164,32 +196,37 @@ DeviceHashTable::insert(const DeviceDataBlock &key, const DeviceDataBlock &value
 __device__ 
 void 
 DeviceHashTable::find(const DeviceDataBlock &key, DeviceDataBlock &value) {
-    size_type bkt_no = __hash_func1(key.data, key.size);
+    size_type bkt_no = __hash_func1(key.data, key.size) % _bkt_cnt;
     size_type elem_cnt = *getBktCntAddr(bkt_no);
-    unsigned char *bkt = getDataAddr(bkt_no, elem_cnt);
+    unsigned char *bkt = getDataAddr(bkt_no, 0);
 
     int i = 0;
 
-    for (; i < elem_cnt; i++, bkt += _max_elem_size) 
-        if (memcmp(bkt, key.data, key.size) == 0)
+
+    for (; i < elem_cnt; i++, bkt += _max_elem_size) {
+        if (datacmp(bkt, reinterpret_cast<unsigned char *>(key.data), key.size) == 0) {
             break;
+        }
+    }
     
     if (i == elem_cnt) { // not in this bucket (might in overflow bucket)
         bkt_no = _bkt_cnt;
-        elem_cnt  *getBktCntAddr(bkt_no);
-        bkt = getDataAddr(bkt_no);
+        elem_cnt = *getBktCntAddr(bkt_no);
+        bkt = getDataAddr(bkt_no, 0);
 
         i = 0;
         for (; i < elem_cnt; i++, bkt += _max_elem_size)
-            if (memcmp(bkt, key.data, key.size) == 0)
+            if (datacmp(bkt, reinterpret_cast<unsigned char *>(key.data), key.size) == 0)
                 break;
 
         if (i >= elem_cnt) { // not found
-            value->data = nullptr;
+            value.data = nullptr;
+            value.size = 0;
             return;
         }
     }
-
+    
+    value.size = (getKeySzAddr(bkt_no, i))[1]; // Get value size
     memcpy(value.data, bkt + _max_key_size, value.size);
 }
 
@@ -201,13 +238,13 @@ DeviceHashTable::getBktCntAddr(size_type bkt_no) {
 
 __device__ 
 typename DeviceHashTable::size_type *
-getKeySzAddr(size_type bkt_no, size_type dst) {
+DeviceHashTable::getKeySzAddr(size_type bkt_no, size_type dst) {
     return ( _elem_info_ptr + bkt_no * _bkt_elem_cnt * 2 + dst * 2 );
 }
 
 __device__ 
 unsigned char *
-getDataAddr(size_type bkt_no, size_type dst) {
+DeviceHashTable::getDataAddr(size_type bkt_no, size_type dst) {
     return ( _data_ptr + (bkt_no * _bkt_elem_cnt + dst) * _max_elem_size );
 }
 
