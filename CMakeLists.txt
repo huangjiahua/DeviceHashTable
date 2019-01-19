@@ -15,8 +15,10 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -rdc=true " )
 
 
 
+
 # Include sub-projects.
 add_subdirectory (src)
+
 add_subdirectory (test)
 
 

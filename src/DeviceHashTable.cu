@@ -198,13 +198,13 @@ DeviceHashTable::getStatusAddr(size_type bkt_no, size_type dst) {
 
 __host__
 void 
-DestroyDeviceHashTable(DeviceHashTable *dht) {
+destroyDeviceHashTable(DeviceHashTable *dht) {
     cudaFree(dht);
 }
 
 __host__
 void 
-CreateDeviceHashTable(
+createDeviceHashTable(
       DeviceHashTable *&dht, 
       uint32_t max_elem_cnt, uint32_t bkt_cnt, 
       uint32_t max_key_size, uint32_t max_val_size) {
@@ -261,7 +261,7 @@ setupKernel(DeviceHashTable *dht, uint32_t *nums, unsigned char **ptrs) {
 }
 
 __global__ 
-void getInfo(DeviceHashTable *dht, uint32_t *output, void **output_ptrs) {
+void getInfoKernel(DeviceHashTable *dht, uint32_t *output, void **output_ptrs) {
 	output[0] = dht->memorySize();
 	output[1] = dht->maxElementCount();
 	output[2] = dht->maxKeySize();

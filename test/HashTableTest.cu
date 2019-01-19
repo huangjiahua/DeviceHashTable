@@ -10,10 +10,6 @@ int main() {
 	cout << "Hello" << endl;
 
 	DeviceHashTable *dht = NULL;
-	uint32_t *dev_output;
-	uint32_t output[5];
-	void **dev_ptrs;
-	void *ptrs[4];
 
 	uint32_t keys[500], values[500];
 	uint32_t key_size[500], value_size[500];
@@ -28,7 +24,7 @@ int main() {
 		key_size[i] = value_size[i] = sizeof(uint32_t);
 	}
 
-	CreateDeviceHashTable(dht, 5000, 500, 4, 4);
+	createDeviceHashTable(dht, 5000, 500, 4, 4);
 
 	cudaMalloc((void**)&dev_keys, 500 * sizeof(uint32_t));
 	cudaMalloc((void**)&dev_values, 500 * sizeof(uint32_t));
@@ -85,7 +81,7 @@ int main() {
 	cudaFree(dev_key_size);
 	cudaFree(dev_value_size);
 	cudaFree(dev_ret);
-	DestroyDeviceHashTable(dht);
+	destroyDeviceHashTable(dht);
 #ifdef NEED_PAUSE
 	system("pause");
 #endif // NEED_PAUSE

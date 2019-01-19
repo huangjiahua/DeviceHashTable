@@ -83,11 +83,11 @@ public:
 __global__ void setupKernel(DeviceHashTable *dht, uint32_t *nums, unsigned char **ptrs);
 __global__ void findKernel(DeviceHashTable *dht, DeviceHashTableFindBlock buf);
 __global__ void insertKernel(DeviceHashTable *dht, DeviceHashTableInsertBlock buf);
-__global__ void getInfo(DeviceHashTable *dht, uint32_t *output, void **output_ptrs);
+__global__ void getInfoKernel(DeviceHashTable *dht, uint32_t *output, void **output_ptrs);
 
-__host__ void DestroyDeviceHashTable(DeviceHashTable *dht);
+__host__ void destroyDeviceHashTable(DeviceHashTable *dht);
 
-__host__ void CreateDeviceHashTable(DeviceHashTable *&dht, 
+__host__ void createDeviceHashTable(DeviceHashTable *&dht, 
                                     uint32_t max_elem_cnt, uint32_t bkt_cnt, 
                                     uint32_t max_key_size, uint32_t max_val_size); 
 
