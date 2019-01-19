@@ -70,7 +70,7 @@ int main() {
 
 	for (int i = 0; i < 500; i++) {
 		keys[i] = i;
-		values[i] = i * i;
+		values[i] = i + 1;
 		key_size[i] = value_size[i] = sizeof(uint32_t);
 	}
 
@@ -81,6 +81,7 @@ int main() {
 	cudaMalloc((void**)&dev_key_size, 500 * sizeof(uint32_t));
 	cudaMalloc((void**)&dev_value_size, 500 * sizeof(uint32_t));
 	cudaMalloc((void**)&dev_ret, 500 * sizeof(IstRet));
+
 
 	cudaMemcpy(dev_keys, keys, 500 * sizeof(uint32_t), cudaMemcpyHostToDevice);
 	cudaMemcpy(dev_values, values, 500 * sizeof(uint32_t), cudaMemcpyHostToDevice);
@@ -112,35 +113,18 @@ int main() {
 		dev_value_size,
 		sizeof(uint32_t),
 		sizeof(uint32_t),
-		500
+		498
 	};
 
-	findKernel<<<4, 64>>>(dht, fnd);
+	 findKernel<<<4, 64>>>(dht, fnd);
 
-	// cudaMalloc((void**)&dev_output, sizeof(uint32_t) * 5);
-	// cudaMalloc((void**)&dev_ptrs, sizeof(void *) * 4);
-	
-	// getInfo<<<1, 1>>>(dht, dev_output, dev_ptrs);
 
-	// cudaMemcpy(output, dev_output, sizeof(uint32_t) * 5, cudaMemcpyDeviceToHost);
-	// cudaMemcpy(ptrs, dev_ptrs, sizeof(void *) * 4, cudaMemcpyDeviceToHost);
-
-	
-	// for (int i = 0; i < 5; i++)
-	// 	cout << output[i] << endl;
-	
-	// cout << (uint64_t)dht << endl;
-
-	// for (int i = 0; i < 4; i++)
-	// 	cout << (uint64_t)ptrs[i] << endl;
-
-	// cudaFree(dev_output);
 
 	cudaMemcpy(values, dev_values, 500 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 	cudaMemcpy(value_size, dev_value_size, 500 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 	cout << endl;
 	for (int i = 0; i < 500; i++) {
-		cout << i << " --- " << values[i] << " --- " << value_size[i] << "  RET: " << ret[i] << endl;
+		cout << i << " --- " << values[i] << " --- " << value_size[i] << "  ret: " << ret[i] << endl;
 	}
 	cudaFree(dev_keys);
 	cudaFree(dev_values);
@@ -152,3 +136,24 @@ int main() {
 	system("pause");
 #endif // NEED_PAUSE
 }
+
+	//  cudaMalloc((void**)&dev_output, sizeof(uint32_t) * 5);
+	//  cudaMalloc((void**)&dev_ptrs, sizeof(void *) * 4);
+	
+	//  getInfo<<<1, 1>>>(dht, dev_output, dev_ptrs);
+
+	//  cudaMemcpy(output, dev_output, sizeof(uint32_t) * 5, cudaMemcpyDeviceToHost);
+	//  cudaMemcpy(ptrs, dev_ptrs, sizeof(void *) * 4, cudaMemcpyDeviceToHost);
+
+	
+	//  for (int i = 0; i < 5; i++)
+	//  	cout << output[i] << endl;
+
+	//  cout << endl;
+	
+	//  cout << (uint64_t)dht << endl;
+
+	//  for (int i = 0; i < 4; i++)
+	//  	cout << (uint64_t)ptrs[i] << endl;
+
+	//  cudaFree(dev_output);
