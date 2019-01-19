@@ -4,53 +4,7 @@
 
 using namespace std;
 
-__global__ 
-void getInfo(DeviceHashTable *dht, uint32_t *output, void **output_ptrs) {
-	output[0] = dht->memorySize();
-	output[1] = dht->maxElementCount();
-	output[2] = dht->maxKeySize();
-	output[3] = dht->maxValueSize();
-	output[4] = dht->bucketCount();
-	output_ptrs[0] = dht->bucketInfoAddress();
-	output_ptrs[1] = dht->elementInfoAddress();
-	output_ptrs[2] = dht->dataAddress();
-}
 
-__global__
-void insertKernel(DeviceHashTable *dht, DeviceHashTableInsertBlock buf) {
-	uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-	uint32_t stride = gridDim.x * blockDim.x;
-	DeviceDataBlock key_blk, val_blk;
-	IstRet ret; 
-
-	while (tid < buf.len) {
-		key_blk.data = buf.key_buf + tid * buf.max_key_size;
-		key_blk.size = buf.key_size_buf[tid];
-		val_blk.data = buf.val_buf + tid * buf.max_val_size;
-		val_blk.size = buf.val_size_buf[tid];
-		ret = dht->insert(key_blk, val_blk);
-		if (buf.ret_buf != nullptr)
-			buf.ret_buf[tid] = ret;
-		tid += stride;
-	}
-}
-
-__global__
-void findKernel(DeviceHashTable *dht, DeviceHashTableFindBlock buf) {
-	uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-	uint32_t stride = gridDim.x * blockDim.x;
-	DeviceDataBlock key_blk, val_blk;
-
-
-	while (tid < buf.len) {
-		key_blk.data = buf.key_buf + tid * buf.max_key_size;
-		key_blk.size = buf.key_size_buf[tid];
-		val_blk.data = buf.val_buf + tid * buf.max_val_size;
-		dht->find(key_blk, val_blk); // value data is already copied to output buffer 
-		buf.val_size_buf[tid] = val_blk.size; // if not found, this size is 0, the user shall know.
-		tid += stride;
-	} 
-}
 
 int main() {
 	cout << "Hello" << endl;
