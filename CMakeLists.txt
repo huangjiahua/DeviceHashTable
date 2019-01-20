@@ -10,8 +10,8 @@ project (DeviceHashTable CUDA CXX)
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler \"/wd 4819\" " )
 
 
-# It needs to add this flag, because this project should be compiled seperately
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -rdc=true " )
+# To support device version of cudaMalloc
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_50" )
 
 
 

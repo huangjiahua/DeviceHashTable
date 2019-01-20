@@ -1,15 +1,20 @@
 #ifndef DEFAULTALLOCATOR_CUH
 #define DEFAULTALLOCATOR_CUH
-#include <cstdint>
+#include "DeviceAllocator.cuh"
 
-class DeviceAllocator {
-public:
-    __device__ virtual void *alloc(uint64_t size)=0;
-
-};
 
 class DefaultAllocator: public DeviceAllocator {
-
+private:
+    int i;
+public:
+    __device__  void *alloc(uint32_t size) override {
+        void *ptr;
+        cudaMalloc((void**)&ptr, size);
+        return ptr;
+    }
+    __device__  void recyc(void *ptr, uint32_t size) override {
+        cudaFree(ptr);
+    }
 };
 
 
