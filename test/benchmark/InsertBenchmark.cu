@@ -6,7 +6,7 @@
 
 typedef std::chrono::time_point<std::chrono::steady_clock> tp;
 
-const uint32_t TOTAL_NUM = 50000000; // 50 million
+const uint32_t TOTAL_NUM = 5000; // 50 million
 
 using namespace std;
 
@@ -14,7 +14,7 @@ void generate_random_data(uint32_t *keys, uint32_t *values, uint32_t n) {
 	default_random_engine en(chrono::system_clock::now().time_since_epoch().count());
 	uniform_int_distribution<uint32_t> dis(0, n);
 	for (uint32_t i = 0; i < n; i++) {
-		keys[i] = dis(en);
+		keys[i] = i;
 		values[i] = 10;
 	}
 }
@@ -49,7 +49,7 @@ int main() {
 	auto bf_crt_tb = chrono::steady_clock::now();
 	cudaEventRecord(ev_bf_ins);
 	createDeviceHashTable(dht, TOTAL_NUM, TOTAL_NUM/10, sizeof(uint32_t), sizeof(uint32_t));
-	cudaDeviceSynchronize();
+	HANDLE_ERROR(cudaDeviceSynchronize());
 	auto af_crt_tb = chrono::steady_clock::now();
 
 	auto bf_ins = chrono::steady_clock::now();

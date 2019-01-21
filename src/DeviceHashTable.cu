@@ -1,6 +1,38 @@
 #include "../include/DeviceHashTable.cuh"
 #include "../src/HashFunc.cuh"
 #include "../util/util.cuh"
+#include <stdio.h>
+
+
+__device__ 
+void 
+DeviceHashTable::init(const DHTInitBlock &init_blk) {
+    _bkts_p = init_blk.bkts_p;
+    if (init_blk.alloc_p != nullptr) 
+        _alloc_p = init_blk.alloc_p;
+    else {
+        _alloc_p = nullptr;
+    }
+    _bkt_num = init_blk.bkt_num;
+}
+
+__device__ 
+void 
+DeviceHashTable::freeBucket(size_type bkt_no) {
+    getBucketPtr(bkt_no)->free(_alloc_p);
+}
+
+__device__ 
+void 
+DeviceHashTable::initBucket(size_type bkt_no, const DHTInitBlock &init_blk) {
+    getBucketPtr(bkt_no)->init(_alloc_p, init_blk.bkt_size, init_blk.max_key_size, init_blk.max_elem_size);
+}
+
+__device__ 
+DeviceHashTable::dhb *
+DeviceHashTable::getBucketPtr(size_type bkt_no) {
+    return (_bkts_p + bkt_no);
+}
 
 
 __device__ 
@@ -48,7 +80,7 @@ DeviceHashTable::maxValueSize() const {
 __device__ 
 uint32_t
 DeviceHashTable::bucketCount() const {
-    return (_bkt_cnt);
+    return (_bkt_num);
 }
 
 
@@ -75,104 +107,128 @@ DeviceHashTable::dataAddress() const {
 __device__ 
 IstRet 
 DeviceHashTable::insert(const DeviceDataBlock &key, const DeviceDataBlock &value) {
-    size_type bkt_no = __hash_func1(key.data, key.size) % _bkt_cnt;
-    size_type *indicator_p = getBktCntAddr(bkt_no);
-    IstRet ret = IstRet::SUCCESSUL;
+    // printf("HELLO, %d\n", *(uint32_t*)(key.data));
+    size_type bkt_no = __hash_func1(key.data, key.size) % _bkt_num;
+    dhb *bkt_info = getBucketPtr(bkt_no);
+    // printf("inst: key: %d, bkt_no: %d, bkt_addr: %d\n", *(uint32_t*)(key.data), bkt_no, (uint32_t)bkt_info);
     status_type *stat_p;
+    unsigned char *data_p;
+    size_type *size_p;
+    IstRet ret = IstRet::SUCCESSUL;
+
     
-    size_type dst = atomicAdd(indicator_p, 1);
-    if (dst >= _bkt_elem_cnt) {
-        bkt_no = _bkt_cnt; // Overflow bucket
-        indicator_p = getBktCntAddr(bkt_no);
-        dst = atomicAdd(indicator_p, 1);
-        if (dst >= OVERFLOW_COUNT) { // the overflow bucket is full
-            return IstRet::FULL;
+    uint32_t dst = atomicAdd(&(bkt_info->_size), 1);
+
+
+    if (dst > bkt_info->_capacity) {
+        while (atomicOr(&bkt_info->_capacity, 0) < dst) {
+            for (int i = 0; i < 10000000; i++) ;
         }
+    }
+
+    if (dst == bkt_info->_capacity) { 
         ret = IstRet::OVERFLOWED;
-    }
-    
-    stat_p = getStatusAddr(bkt_no, dst);
+        // ready to reallocate
+        uint32_t counter = bkt_info->_capacity;
+        uint32_t cap = bkt_info->_capacity;
+        uint32_t k = 0;
 
-    if (atomicCAS(stat_p, EMPTY, OCCUPIED) != EMPTY) {
-        return IstRet::UNKNOWN;
+        // The first two steps aim to make sure no threads are acquiring data from the 
+        // dynamic memory area, because if they read when the reallocation is processing
+        // it will cause serious problems
+
+        // First, wait all writes are done
+        // TODO: this is silly, it will be changed
+        while (counter != 0) {
+            if (atomicCAS(bkt_info->getStatusPtr(k), VALID, OCCUPIED) == VALID)
+                counter--;
+            k = (k + 1) % cap;
+        }
+
+        // Second, wait all reads are gone
+        while (atomicCAS(&(bkt_info->_read_num), 0, -99999) != 0)
+            ;
+
+        // Third, it is the time to reallocate
+        // it will set all status to VALID and set _read_num to 0 again
+        // and it will set the _capacity a new value, so that other waiting
+        // threads can continue to insert
+        bkt_info->reallocate(_alloc_p); 
     }
 
-    size_type *key_sz_p = getKeySzAddr(bkt_no, dst);
-    size_type *val_sz_p = key_sz_p + 1;
-    unsigned char *key_data_p = getDataAddr(bkt_no, dst);
-    unsigned char *val_data_p = key_data_p + _max_key_size;
-    
-    *key_sz_p = key.size;
-    *val_sz_p = value.size;
-    memcpy(key_data_p, key.data, key.size);
-    memcpy(val_data_p, value.data, value.size);
+    // now we can assure the dst < capacity and we do the insert
+    if (dst < bkt_info->_capacity) {
+        // it can now write
+        stat_p = bkt_info->getStatusPtr(dst);
+        data_p = bkt_info->getDataPtr(dst);
+        size_p = bkt_info->getKeySizePtr(dst);
+        uint32_t r;
+        if ((r = atomicCAS(stat_p, EMPTY, OCCUPIED)) != EMPTY) {
+            return IstRet::UNKNOWN;
+        }
 
-    if (atomicCAS(stat_p, OCCUPIED, VALID) != OCCUPIED) {
-        return IstRet::UNKNOWN;
-    }
-    
-    return ret;
+        *size_p = key.size;
+        *(size_p + 1) = value.size;
+        memcpy(data_p, key.data, key.size);
+        memcpy(data_p + bkt_info->_max_key_size, value.data, value.size);
+        if (atomicCAS(stat_p, OCCUPIED, VALID) != OCCUPIED) {
+            return IstRet::UNKNOWN;
+        }
+    } 
+	return ret;
 }
 
 
 __device__ 
 void 
 DeviceHashTable::find(const DeviceDataBlock &key, DeviceDataBlock &value) {
-    size_type bkt_no = __hash_func1(key.data, key.size) % _bkt_cnt;
-    size_type elem_cnt = *getBktCntAddr(bkt_no);
-    unsigned char *bkt = getDataAddr(bkt_no, 0);
-    status_type *stat_p;
+    size_type bkt_no = __hash_func1(key.data, key.size) % _bkt_num;
+    dhb *bkt_p = getBucketPtr(bkt_no);
+    // printf("find: key: %d, bkt_no: %d, bkt_addr: %d\n", *(uint32_t*)(key.data), bkt_no, (uint32_t)bkt_p);
+    size_type *stat_p, *size_p;
+    unsigned char *data_p;
+    size_type size;
+    int i;
+    
+    // if the bucket is being reallocated, wait until the process is done
+    while (atomicInc(&bkt_p->_read_num, 0) < 0)
+        ;
+    
+    size = bkt_p->_size;
 
-    int i = 0;
+    // now the dynamic zone is safe to read
+    for (i = 0; i < size; i++) {
+        stat_p = bkt_p->getStatusPtr(i);
+        size_p = bkt_p->getKeySizePtr(i);
+        data_p = bkt_p->getDataPtr(i);
+        uint32_t ret;
 
-    for (; i < elem_cnt; i++, bkt += _max_elem_size) {
-        stat_p = getStatusAddr(bkt_no, i);
-        uint32_t stat;
-
-        while ( ((stat = atomicCAS(stat_p, VALID, READING)) != VALID) && (stat != READING) )
+        // wait until the data is properly written
+        while (atomicInc(stat_p, VALID) < VALID) // add *stat_p if *stat_p >= VALID
             ;
-
-        if (datacmp(bkt, reinterpret_cast<unsigned char *>(key.data), key.size) == 0) {
+        
+        if (key.size == *size_p && datacmp(reinterpret_cast<unsigned char*>(key.data), data_p, key.size) == 0)
             break;
-        }
-        atomicExch(stat_p, VALID);
+        
+        atomicSub(stat_p, 1);
     }
-    
-    if (i == elem_cnt) { // not in this bucket (might in overflow bucket)
-        bkt_no = _bkt_cnt;
-        elem_cnt = *getBktCntAddr(bkt_no);
-        bkt = getDataAddr(bkt_no, 0);
 
-        i = 0;
-        for (; i < elem_cnt; i++, bkt += _max_elem_size) {
-            stat_p = getStatusAddr(bkt_no, i);
-            uint32_t stat;
-
-            while ( ((stat = atomicCAS(stat_p, VALID, READING)) != VALID) && (stat != READING) )
-                ;
-
-            if (datacmp(bkt, reinterpret_cast<unsigned char *>(key.data), key.size) == 0)
-                break;
-
-            atomicExch(stat_p, VALID);
-        }
-
-        if (i >= elem_cnt) { // not found
-            value.data = nullptr;
-            value.size = 0;
-            return;
-        }
+    if (i < size) { // found
+        value.size = *(size_p + 1);
+        // printf("%d, %d\n", *(uint32_t*)(key.data), *(uint32_t*)(data_p + _max_key_size));
+        memcpy(value.data, data_p + bkt_p->_max_key_size, value.size);
+        atomicSub(stat_p, 1);
+    } else {
+        value.size = 0;
     }
-    
-    value.size = (getKeySzAddr(bkt_no, i))[1]; // Get value size
-    memcpy(value.data, bkt + _max_key_size, value.size);
-    atomicExch(stat_p, VALID);
+
+    atomicSub(&bkt_p->_read_num, 1);
 }
 
 __device__ 
 typename DeviceHashTable::size_type *
 DeviceHashTable::getBktCntAddr(size_type bkt_no) {
-    return ( _bkt_info_ptr + bkt_no );
+    return ( &getBucketPtr(bkt_no)->_size );
 }
 
 __device__ 
@@ -194,64 +250,94 @@ DeviceHashTable::getStatusAddr(size_type bkt_no, size_type dst) {
     return ( _data_info_ptr + (bkt_no * _bkt_elem_cnt + dst) );
 }
 
+__device__ 
+DeviceAllocator *
+DeviceHashTable::getAllocatorPtr() const {
+    return _alloc_p;
+}
 
 
-__host__
-void 
-destroyDeviceHashTable(DeviceHashTable *dht) {
-    cudaFree(dht);
+
+
+__global__ 
+void
+initDHTKernel(DeviceHashTable *dht, DHTInitBlock init_blk) {
+    uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+    uint32_t stride = blockDim.x * gridDim.x;
+    
+    // I don't know why, but the cudaMalloc in the bucket init function only works if these five lines of
+    // nonsense code exists 
+    // -----------------------------------
+    // if (tid == 0) {
+        // void *ptr;
+        // int k = cudaMalloc((void**)&ptr, 32);
+        // cudaFree(ptr);
+        // }
+        // -----------------------------------
+    
+    if (tid == 0) {
+        dht->init(init_blk);
+    }
+    __syncthreads(); // the alloc pointer should be ready
+    
+    while (tid < init_blk.bkt_num) {
+        // init_blk.bkts_p[tid].init(dht->getAllocatorPtr(), init_blk.bkt_size, init_blk.max_key_size, init_blk.max_elem_size);
+		dht->initBucket(tid, init_blk);
+        tid += stride;
+    }
+}
+
+__global__
+void
+freeDHTKernel(DeviceHashTable *dht) {
+    uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+    uint32_t stride = blockDim.x * gridDim.x;
+    uint32_t n = dht->bucketCount();
+
+    uint32_t bkt_no = tid;
+
+    while (bkt_no < n) {
+        dht->freeBucket(bkt_no);
+        bkt_no += stride;
+    }
 }
 
 __host__
 void 
 createDeviceHashTable(
       DeviceHashTable *&dht, 
-      uint32_t max_elem_cnt, uint32_t bkt_cnt, 
-      uint32_t max_key_size, uint32_t max_val_size) {
+      uint32_t max_elem_cnt, 
+      uint32_t bkt_cnt, 
+      uint32_t max_key_size, 
+      uint32_t max_val_size,
+      DeviceAllocator *alloc_p) {
+    uint32_t bkt_size = max_elem_cnt / bkt_cnt;
 
-    uint32_t bkt_elem_cnt = (max_elem_cnt + bkt_cnt - 1) / bkt_cnt;
-    max_elem_cnt = bkt_elem_cnt * bkt_cnt;
+    uint32_t total_size = sizeof(DeviceHashTable) + bkt_cnt * sizeof(DeviceHashBucket);
+    HANDLE_ERROR(cudaMalloc((void**)&dht, total_size));
 
-    uint32_t _mem_size = 0;
-    _mem_size += sizeof(DeviceHashTable);
-    _mem_size += sizeof(uint32_t) * ( bkt_cnt + max_elem_cnt * 2 );
-    _mem_size += sizeof(uint32_t) * ( 1 + OVERFLOW_COUNT * 2 );
-    _mem_size += sizeof(uint32_t) * ( max_elem_cnt + OVERFLOW_COUNT );
-    _mem_size += ( max_elem_cnt + OVERFLOW_COUNT ) * (max_key_size + max_val_size);
+    unsigned char *ptr = reinterpret_cast<unsigned char *>(dht);
+    ptr += sizeof(DeviceHashTable);
 
-    cudaMalloc((void**)&dht, _mem_size);
-    
-    unsigned char *start = reinterpret_cast<unsigned char *>(dht);
-    unsigned char *bkt_info_p = start + sizeof(DeviceHashTable);
-    unsigned char *elem_info_p = bkt_info_p + (bkt_cnt + 1) * sizeof(uint32_t);
-    unsigned char *data_info_p = elem_info_p + (max_elem_cnt + OVERFLOW_COUNT) * 2 * sizeof(uint32_t);
-    unsigned char *data_p = data_info_p + (max_elem_cnt + OVERFLOW_COUNT) * sizeof(uint32_t);
-    
-    cudaMemset((void*)dht, 0x00, sizeof(DeviceHashTable) + sizeof(uint32_t) * (bkt_cnt + 1));
-    cudaMemset((void*)data_info_p, EMPTY, sizeof(uint32_t) * (max_elem_cnt + OVERFLOW_COUNT));
-    
-    // char *bkt_info_p = NULL;
-    // char *elem_info_p = NULL;
-    // char *data_p = NULL;
-    // char *overflow_data_p = NULL;
+    DHTInitBlock dib {
+        reinterpret_cast<DeviceHashBucket *>(ptr),
+        alloc_p,
+        bkt_cnt,
+        bkt_size,
+        max_key_size,
+        max_key_size + max_val_size
+    };
 
-    uint32_t numbers[4] = {bkt_cnt, bkt_elem_cnt, max_key_size, max_val_size};
-    unsigned char *pointers[4] = {bkt_info_p, elem_info_p, data_p, data_info_p};
+    initDHTKernel<<<4, 64>>>(dht, dib);
+    HANDLE_ERROR(cudaDeviceSynchronize());
+}
 
-    uint32_t *dev_numbers;
-    unsigned char **dev_pointers;
-
-    cudaMalloc((void**)&dev_numbers, 4 * sizeof(uint32_t));
-    cudaMalloc((void**)&dev_pointers, 4 * sizeof(unsigned char *));
-
-    cudaMemcpy(dev_numbers, numbers, 4 * sizeof(uint32_t), cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_pointers, pointers, 4 * sizeof(unsigned char *), cudaMemcpyHostToDevice);
-
-    setupKernel<<<1, 1>>>(dht, dev_numbers, dev_pointers);
-
+__host__
+void 
+destroyDeviceHashTable(DeviceHashTable *dht) {
+    freeDHTKernel<<<4, 64>>>(dht);   
     cudaDeviceSynchronize();
-    cudaFree(dev_numbers);
-    cudaFree(dev_pointers);
+    cudaFree(dht);
 }
 
 __global__ 
@@ -261,7 +347,8 @@ setupKernel(DeviceHashTable *dht, uint32_t *nums, unsigned char **ptrs) {
 }
 
 __global__ 
-void getInfoKernel(DeviceHashTable *dht, uint32_t *output, void **output_ptrs) {
+void 
+getInfoKernel(DeviceHashTable *dht, uint32_t *output, void **output_ptrs) {
 	output[0] = dht->memorySize();
 	output[1] = dht->maxElementCount();
 	output[2] = dht->maxKeySize();
@@ -273,7 +360,8 @@ void getInfoKernel(DeviceHashTable *dht, uint32_t *output, void **output_ptrs) {
 }
 
 __global__
-void insertKernel(DeviceHashTable *dht, DeviceHashTableInsertBlock buf) {
+void 
+insertKernel(DeviceHashTable *dht, DeviceHashTableInsertBlock buf) {
 	uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
 	uint32_t stride = gridDim.x * blockDim.x;
 	DeviceDataBlock key_blk, val_blk;
@@ -292,7 +380,8 @@ void insertKernel(DeviceHashTable *dht, DeviceHashTableInsertBlock buf) {
 }
 
 __global__
-void findKernel(DeviceHashTable *dht, DeviceHashTableFindBlock buf) {
+void 
+findKernel(DeviceHashTable *dht, DeviceHashTableFindBlock buf) {
 	uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
 	uint32_t stride = gridDim.x * blockDim.x;
 	DeviceDataBlock key_blk, val_blk;

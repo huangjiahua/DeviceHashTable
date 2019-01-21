@@ -1,4 +1,4 @@
-﻿set(LIB_FILES DeviceHashTable.cu HashFunc.cu ../util/util.cu)
+﻿set(LIB_FILES DeviceHashTable.cu DeviceHashBucket.cu HashFunc.cu ../util/util.cu)
 
 
 add_library(libdevht STATIC ${LIB_FILES})

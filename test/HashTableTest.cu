@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iomanip>
 #include <cuda_runtime.h>
 #include "../include/DeviceHashTable.cuh"
 
@@ -17,10 +18,11 @@ int main() {
 	uint32_t *dev_keys, *dev_values;
 	uint32_t *dev_key_size, *dev_value_size;
 	IstRet *dev_ret;
+	uint32_t *ret_values;
 
 	for (int i = 0; i < 500; i++) {
 		keys[i] = i;
-		values[i] = i + 1;
+		values[i] = i + 5;
 		key_size[i] = value_size[i] = sizeof(uint32_t);
 	}
 
@@ -31,6 +33,7 @@ int main() {
 	cudaMalloc((void**)&dev_key_size, 500 * sizeof(uint32_t));
 	cudaMalloc((void**)&dev_value_size, 500 * sizeof(uint32_t));
 	cudaMalloc((void**)&dev_ret, 500 * sizeof(IstRet));
+	cudaMalloc((void**)&ret_values, 500 * sizeof(uint32_t));
 
 
 	cudaMemcpy(dev_keys, keys, 500 * sizeof(uint32_t), cudaMemcpyHostToDevice);
@@ -46,41 +49,47 @@ int main() {
 		dev_value_size,
 		sizeof(uint32_t),
 		sizeof(uint32_t),
-		500
+		499
 	};
 
 	insertKernel<<<4, 64>>>(dht, ins);
 
 	cudaMemcpy(ret, dev_ret, 500 * sizeof(IstRet), cudaMemcpyDeviceToHost);
+
 	cudaMemset((void*)dev_values, 0x00, 500 * sizeof(uint32_t));
 	cudaMemset((void*)dev_value_size, 0x00, 500 * sizeof(uint32_t));
 
+	// for (int i = 0; i < 500; i++) {
+	// 	cout << setw(3) << i << ". " << ret[i] << endl;
+	// }
 
 	DeviceHashTableFindBlock fnd {
 		reinterpret_cast<unsigned char*>(dev_keys),
-		reinterpret_cast<unsigned char*>(dev_values),
+		reinterpret_cast<unsigned char*>(ret_values),
 		dev_key_size,
 		dev_value_size,
 		sizeof(uint32_t),
 		sizeof(uint32_t),
-		498
+		500
 	};
 
-	 findKernel<<<4, 64>>>(dht, fnd);
+	findKernel<<<4, 64>>>(dht, fnd);
 
 
 
-	cudaMemcpy(values, dev_values, 500 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+	cudaMemcpy(values, ret_values, 500 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 	cudaMemcpy(value_size, dev_value_size, 500 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 	cout << endl;
 	for (int i = 0; i < 500; i++) {
 		cout << i << " --- " << values[i] << " --- " << value_size[i] << "  ret: " << ret[i] << endl;
 	}
+
 	cudaFree(dev_keys);
 	cudaFree(dev_values);
 	cudaFree(dev_key_size);
 	cudaFree(dev_value_size);
 	cudaFree(dev_ret);
+	cudaFree(ret_values);
 	destroyDeviceHashTable(dht);
 #ifdef NEED_PAUSE
 	system("pause");

@@ -23,6 +23,8 @@ DeviceHashBucket::init(
         _ptr = reinterpret_cast<unsigned char*>(alloc_p->alloc(total_size));
     else
         cudaMalloc((void**)&_ptr, total_size);
+    
+    memset(_ptr, 0x00, _capacity * sizeof(size_type));
 }
 
 
@@ -34,4 +36,67 @@ DeviceHashBucket::free(DeviceAllocator *alloc_p) {
     } else {
         cudaFree(_ptr);
     }
+}
+
+__device__ 
+void 
+DeviceHashBucket::reallocate(DeviceAllocator *alloc_p) {
+    unsigned char *new_ptr;
+    size_type curr_size = getTotalSize();
+    size_type curr_cap = _capacity;
+    size_type new_cap = curr_cap * 2;
+
+    // allocation
+    if (alloc_p != nullptr) {
+		new_ptr = reinterpret_cast<unsigned char*>(alloc_p->alloc(curr_size * 2));
+    } else {
+        cudaMalloc((void**)&new_ptr, curr_size * 2);
+    }
+
+    // copying
+
+    // TODO: this is silly, it will be changed to memcpy 
+    size_type *szs = reinterpret_cast<size_type*>(new_ptr);
+    for (size_type i = 0; i < curr_cap; i++) {
+        szs[i] = VALID;
+    }
+
+    memcpy(new_ptr + new_cap * sizeof(size_type),
+           _ptr + curr_cap * sizeof(size_type),
+           curr_cap * 2 * sizeof(size_type));
+
+    memcpy(new_ptr + new_cap * 3 * sizeof(size_type),
+           _ptr + curr_cap * 3 * sizeof(size_type),
+           curr_cap * _max_elem_size);
+    
+
+    // chage the capacity
+    atomicExch(&_capacity, new_cap);
+    atomicExch(&_read_num, 0);
+    cudaFree(_ptr);
+    _ptr = new_ptr;
+}
+
+__device__ 
+DeviceHashBucket::size_type *
+DeviceHashBucket::getStatusPtr(size_type offset) const {
+    return ( reinterpret_cast<size_type*>(_ptr) + offset );
+}
+
+__device__ 
+DeviceHashBucket::size_type *
+DeviceHashBucket::getKeySizePtr(size_type offset) const {
+    return ( reinterpret_cast<size_type*>(_ptr) + _capacity + 2 * offset );
+}
+
+__device__ 
+unsigned char *
+DeviceHashBucket::getDataPtr(size_type offset) const {
+    return ( _ptr + 3 * sizeof(size_type) * _capacity + offset * _max_elem_size );
+}
+
+__device__ 
+DeviceHashBucket::size_type 
+DeviceHashBucket::getTotalSize() const {
+    return ( ( sizeof(size_type) * 3 + _max_elem_size ) * _capacity );
 }
