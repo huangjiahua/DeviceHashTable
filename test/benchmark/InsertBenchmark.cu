@@ -11,7 +11,7 @@ const uint32_t TOTAL_NUM = 50000000; // 50 million
 using namespace std;
 
 void generate_random_data(uint32_t *keys, uint32_t *values, uint32_t n) {
-	default_random_engine en(chrono::system_clock::now().time_since_epoch().count());
+	default_random_engine en((unsigned int)chrono::system_clock::now().time_since_epoch().count());
 	uniform_int_distribution<uint32_t> dis(0, n);
 	for (uint32_t i = 0; i < n; i++) {
 		keys[i] = dis(en);
@@ -86,34 +86,38 @@ int main() {
 
 	float cd_tm;
 	cudaEventElapsedTime(&cd_tm, ev_bf_ins, ev_af_ins);
+	memset(values, 0x00, sizeof(uint32_t) * TOTAL_NUM);
+	cudaMemset(dev_values, 0x00, sizeof(uint32_t) * TOTAL_NUM);
+
+	DeviceHashTableFindBlock fnd{
+		reinterpret_cast<unsigned char*>(dev_keys),
+		reinterpret_cast<unsigned char*>(dev_values),
+		dev_key_size,
+		dev_value_size,
+		sizeof(uint32_t),
+		sizeof(uint32_t),
+		50000000
+	};
+
+	auto bf_fd = chrono::steady_clock::now();
+	findKernel<<<16, 128>>> (dht, fnd);
+	cudaDeviceSynchronize();
+	auto bf_bk_cp = chrono::steady_clock::now();
+	HANDLE_ERROR(cudaMemcpy(values, dev_values, TOTAL_NUM * sizeof(uint32_t), cudaMemcpyDeviceToHost));
+	HANDLE_ERROR(cudaMemcpy(value_size, dev_value_size, TOTAL_NUM * sizeof(uint32_t), cudaMemcpyDeviceToHost));
+	auto af_fd = chrono::steady_clock::now();
+
 
 	cout << "Total inserting time: " << elapsed_time(bf_ins, af_ins) << "  from cuda measurement: " << cd_tm << endl;
 	cout << "Copying time:         " << elapsed_time(bf_ins, bf_gpu_ins) << endl;
 	cout << "GPU inserting time:   " << elapsed_time(bf_gpu_ins, af_gpu_ins) << endl;
 	cout << "Table Creating time:  " << elapsed_time(bf_crt_tb, af_crt_tb) << endl;
+	cout << "Total finding time:   " << elapsed_time(bf_fd, af_fd) << endl;
+	cout << "Copying back time:    " << elapsed_time(bf_bk_cp, af_fd) << endl;
+	cout << "GPU finding time:     " << elapsed_time(bf_fd, bf_bk_cp) << endl;
 	cout << "(ms)" << endl;
+	for (int i = 0; i < 30; i++) cout << values[i] << endl;
 
-
-	// DeviceHashTableFindBlock fnd{
-	// 	reinterpret_cast<unsigned char*>(dev_keys),
-	// 	reinterpret_cast<unsigned char*>(dev_values),
-	// 	dev_key_size,
-	// 	dev_value_size,
-	// 	sizeof(uint32_t),
-	// 	sizeof(uint32_t),
-	// 	498
-	// };
-
-	// findKernel << <4, 64 >> > (dht, fnd);
-
-
-
-	// cudaMemcpy(values, dev_values, 500 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
-	// cudaMemcpy(value_size, dev_value_size, 500 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
-	// cout << endl;
-	// for (int i = 0; i < 500; i++) {
-	// 	cout << i << " --- " << values[i] << " --- " << value_size[i] << "  ret: " << ret[i] << endl;
-	// }
 	cudaFree(dev_keys);
 	cudaFree(dev_values);
 	cudaFree(dev_key_size);

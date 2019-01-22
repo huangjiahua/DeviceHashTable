@@ -1,13 +1,15 @@
 #ifndef DEVICEHASHTABLE_CUH
 #define DEVICEHASHTABLE_CUH
+#include <cuda_runtime.h>
 #include "../default_allocator/DefaultAllocator.cuh"
+#include "../src/Error.cuh"
 #include <cstdint>
 
 #define OVERFLOW_COUNT (1000)
 
 #define EMPTY          (0)
-#define VALID          (1)
-#define OCCUPIED       (2)
+#define OCCUPIED       (1)
+#define VALID          (2)
 #define READING        (3)
 
 

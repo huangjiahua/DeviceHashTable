@@ -24,7 +24,7 @@ int main() {
 		key_size[i] = value_size[i] = sizeof(uint32_t);
 	}
 
-	createDeviceHashTable(dht, 5000, 500, 4, 4);
+	createDeviceHashTable(dht, 20, 20, 4, 4);
 
 	cudaMalloc((void**)&dev_keys, 500 * sizeof(uint32_t));
 	cudaMalloc((void**)&dev_values, 500 * sizeof(uint32_t));

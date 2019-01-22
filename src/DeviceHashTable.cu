@@ -118,55 +118,61 @@ DeviceHashTable::insert(const DeviceDataBlock &key, const DeviceDataBlock &value
 __device__ 
 void 
 DeviceHashTable::find(const DeviceDataBlock &key, DeviceDataBlock &value) {
-    size_type bkt_no = __hash_func1(key.data, key.size) % _bkt_cnt;
+    size_type bkt_cnt = _bkt_cnt;
+    size_type bkt_no = __hash_func1(key.data, key.size) % bkt_cnt;
     size_type elem_cnt = *getBktCntAddr(bkt_no);
     unsigned char *bkt = getDataAddr(bkt_no, 0);
     status_type *stat_p;
+    size_type   *size_p;
+
 
     int i = 0;
-
-    for (; i < elem_cnt; i++, bkt += _max_elem_size) {
-        stat_p = getStatusAddr(bkt_no, i);
-        uint32_t stat;
-
-        while ( ((stat = atomicCAS(stat_p, VALID, READING)) != VALID) && (stat != READING) )
+    stat_p = getStatusAddr(bkt_no, i);
+    size_p = getKeySzAddr(bkt_no, i);
+    for (; i < elem_cnt && i < _bkt_elem_cnt; 
+           i++, bkt += _max_elem_size, stat_p++, size_p += 2) {
+        while ( atomicInc(stat_p, VALID) < VALID )
             ;
 
-        if (datacmp(bkt, reinterpret_cast<unsigned char *>(key.data), key.size) == 0) {
+        if (key.size == *size_p && 
+            datacmp(bkt, reinterpret_cast<unsigned char *>(key.data), key.size) == 0) {
             break;
         }
-        atomicExch(stat_p, VALID);
+        atomicSub(stat_p, 1);
     }
     
-    if (i == elem_cnt) { // not in this bucket (might in overflow bucket)
-        bkt_no = _bkt_cnt;
+    if (i >= elem_cnt || i >= _bkt_elem_cnt) { // not in this bucket (might in overflow bucket)
+        bkt_no = bkt_cnt;
         elem_cnt = *getBktCntAddr(bkt_no);
         bkt = getDataAddr(bkt_no, 0);
 
         i = 0;
-        for (; i < elem_cnt; i++, bkt += _max_elem_size) {
-            stat_p = getStatusAddr(bkt_no, i);
-            uint32_t stat;
+        stat_p = getStatusAddr(bkt_no, i);
+        size_p = getKeySzAddr(bkt_no, i);
+        for (; i < elem_cnt && i < OVERFLOW_COUNT; 
+               i++, bkt += _max_elem_size, stat_p++, size_p += 2) {
 
-            while ( ((stat = atomicCAS(stat_p, VALID, READING)) != VALID) && (stat != READING) )
+            while ( atomicInc(stat_p, VALID) < VALID ) {
                 ;
+            }
 
-            if (datacmp(bkt, reinterpret_cast<unsigned char *>(key.data), key.size) == 0)
+            if (key.size == *size_p && 
+                datacmp(bkt, reinterpret_cast<unsigned char *>(key.data), key.size) == 0)
                 break;
 
-            atomicExch(stat_p, VALID);
+            atomicSub(stat_p, 1);
         }
 
-        if (i >= elem_cnt) { // not found
-            value.data = nullptr;
+        if (i >= elem_cnt || i >= OVERFLOW_COUNT) { // not found
             value.size = 0;
             return;
         }
+
     }
     
     value.size = (getKeySzAddr(bkt_no, i))[1]; // Get value size
     memcpy(value.data, bkt + _max_key_size, value.size);
-    atomicExch(stat_p, VALID);
+    atomicSub(stat_p, 1);
 }
 
 __device__ 
