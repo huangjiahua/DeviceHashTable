@@ -85,7 +85,14 @@ int main() {
 	auto af_gpu_ins = af_ins;
 
 	float cd_tm;
+
 	cudaEventElapsedTime(&cd_tm, ev_bf_ins, ev_af_ins);
+
+	cout << "Total inserting time: " << elapsed_time(bf_ins, af_ins) << "  from cuda measurement: " << cd_tm << endl;
+	cout << "Copying time:         " << elapsed_time(bf_ins, bf_gpu_ins) << endl;
+	cout << "GPU inserting time:   " << elapsed_time(bf_gpu_ins, af_gpu_ins) << endl;
+	cout << "Table Creating time:  " << elapsed_time(bf_crt_tb, af_crt_tb) << endl;
+	
 	memset(values, 0x00, sizeof(uint32_t) * TOTAL_NUM);
 	cudaMemset(dev_values, 0x00, sizeof(uint32_t) * TOTAL_NUM);
 
@@ -96,7 +103,7 @@ int main() {
 		dev_value_size,
 		sizeof(uint32_t),
 		sizeof(uint32_t),
-		50000000
+		TOTAL_NUM
 	};
 
 	auto bf_fd = chrono::steady_clock::now();
@@ -108,15 +115,11 @@ int main() {
 	auto af_fd = chrono::steady_clock::now();
 
 
-	cout << "Total inserting time: " << elapsed_time(bf_ins, af_ins) << "  from cuda measurement: " << cd_tm << endl;
-	cout << "Copying time:         " << elapsed_time(bf_ins, bf_gpu_ins) << endl;
-	cout << "GPU inserting time:   " << elapsed_time(bf_gpu_ins, af_gpu_ins) << endl;
-	cout << "Table Creating time:  " << elapsed_time(bf_crt_tb, af_crt_tb) << endl;
+
 	cout << "Total finding time:   " << elapsed_time(bf_fd, af_fd) << endl;
 	cout << "Copying back time:    " << elapsed_time(bf_bk_cp, af_fd) << endl;
 	cout << "GPU finding time:     " << elapsed_time(bf_fd, bf_bk_cp) << endl;
 	cout << "(ms)" << endl;
-	for (int i = 0; i < 30; i++) cout << values[i] << endl;
 
 	cudaFree(dev_keys);
 	cudaFree(dev_values);

@@ -114,6 +114,32 @@ DeviceHashTable::insert(const DeviceDataBlock &key, const DeviceDataBlock &value
     return ret;
 }
 
+__global__ 
+void
+insideFindKernel(
+      uint32_t key_size,
+      unsigned char *key_data,
+      uint32_t *stat_p, 
+      uint32_t *size_p, 
+      unsigned char *data_p, 
+      uint32_t data_stride,
+      uint32_t max_num,
+      uint32_t *out_num) {
+    uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+    uint32_t stride = blockDim.x * gridDim.x;
+
+    while (tid < max_num) {
+        while (atomicInc(stat_p + tid, VALID) < VALID) ;
+        if (key_size == size_p[2 * tid] &&
+            datacmp(key_data, data_p + tid * data_stride, key_size)) {
+            if (out_num != nullptr)
+                atomicExch(out_num, tid);
+            return;
+        }
+        tid += stride;
+        atomicSub(stat_p + tid, 1);
+    }
+}
 
 __device__ 
 void 
@@ -122,15 +148,18 @@ DeviceHashTable::find(const DeviceDataBlock &key, DeviceDataBlock &value) {
     size_type bkt_no = __hash_func1(key.data, key.size) % bkt_cnt;
     size_type elem_cnt = *getBktCntAddr(bkt_no);
     unsigned char *bkt = getDataAddr(bkt_no, 0);
+    size_type max_elem_cnt = _bkt_elem_cnt;
+    size_type max_elem_size = _max_elem_size;
     status_type *stat_p;
     size_type   *size_p;
 
 
-    int i = 0;
-    stat_p = getStatusAddr(bkt_no, i);
-    size_p = getKeySzAddr(bkt_no, i);
-    for (; i < elem_cnt && i < _bkt_elem_cnt; 
-           i++, bkt += _max_elem_size, stat_p++, size_p += 2) {
+    uint32_t i = 0;
+    stat_p = getStatusAddr(bkt_no, 0);
+    size_p = getKeySzAddr(bkt_no, 0);
+
+    for (; i < elem_cnt && i < max_elem_cnt; 
+           i++, bkt += max_elem_size, stat_p++, size_p += 2) {
         while ( atomicInc(stat_p, VALID) < VALID )
             ;
 
@@ -141,7 +170,7 @@ DeviceHashTable::find(const DeviceDataBlock &key, DeviceDataBlock &value) {
         atomicSub(stat_p, 1);
     }
     
-    if (i >= elem_cnt || i >= _bkt_elem_cnt) { // not in this bucket (might in overflow bucket)
+    if (i >= elem_cnt || i >= max_elem_cnt) { // not in this bucket (might in overflow bucket)
         bkt_no = bkt_cnt;
         elem_cnt = *getBktCntAddr(bkt_no);
         bkt = getDataAddr(bkt_no, 0);
@@ -150,7 +179,7 @@ DeviceHashTable::find(const DeviceDataBlock &key, DeviceDataBlock &value) {
         stat_p = getStatusAddr(bkt_no, i);
         size_p = getKeySzAddr(bkt_no, i);
         for (; i < elem_cnt && i < OVERFLOW_COUNT; 
-               i++, bkt += _max_elem_size, stat_p++, size_p += 2) {
+               i++, bkt += max_elem_size, stat_p++, size_p += 2) {
 
             while ( atomicInc(stat_p, VALID) < VALID ) {
                 ;
@@ -170,7 +199,7 @@ DeviceHashTable::find(const DeviceDataBlock &key, DeviceDataBlock &value) {
 
     }
     
-    value.size = (getKeySzAddr(bkt_no, i))[1]; // Get value size
+    value.size = size_p[1]; // Get value size
     memcpy(value.data, bkt + _max_key_size, value.size);
     atomicSub(stat_p, 1);
 }
@@ -225,7 +254,7 @@ createDeviceHashTable(
     _mem_size += sizeof(uint32_t) * ( max_elem_cnt + OVERFLOW_COUNT );
     _mem_size += ( max_elem_cnt + OVERFLOW_COUNT ) * (max_key_size + max_val_size);
 
-    cudaMalloc((void**)&dht, _mem_size);
+    HANDLE_ERROR(cudaMalloc((void**)&dht, _mem_size));
     
     unsigned char *start = reinterpret_cast<unsigned char *>(dht);
     unsigned char *bkt_info_p = start + sizeof(DeviceHashTable);
@@ -254,6 +283,8 @@ createDeviceHashTable(
     cudaMemcpy(dev_pointers, pointers, 4 * sizeof(unsigned char *), cudaMemcpyHostToDevice);
 
     setupKernel<<<1, 1>>>(dht, dev_numbers, dev_pointers);
+
+    HANDLE_ERROR( cudaGetLastError() );
 
     cudaDeviceSynchronize();
     cudaFree(dev_numbers);
