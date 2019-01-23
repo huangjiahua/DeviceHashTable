@@ -6,7 +6,7 @@
 
 typedef std::chrono::time_point<std::chrono::steady_clock> tp;
 
-const uint32_t TOTAL_NUM = 5000; // 50 million
+const uint32_t TOTAL_NUM = 500000; // 50 million
 
 using namespace std;
 
@@ -48,7 +48,7 @@ int main() {
 	cout << "Here it begins: " << "Inserting " << TOTAL_NUM << " data elements." <<endl;
 	auto bf_crt_tb = chrono::steady_clock::now();
 	cudaEventRecord(ev_bf_ins);
-	createDeviceHashTable(dht, TOTAL_NUM, TOTAL_NUM/10, sizeof(uint32_t), sizeof(uint32_t));
+	createDeviceHashTable(dht, TOTAL_NUM*2, TOTAL_NUM/10, sizeof(uint32_t), sizeof(uint32_t));
 	HANDLE_ERROR(cudaDeviceSynchronize());
 	auto af_crt_tb = chrono::steady_clock::now();
 

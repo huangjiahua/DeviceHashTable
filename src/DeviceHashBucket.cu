@@ -19,11 +19,10 @@ DeviceHashBucket::init(
     total_size += data_size * 2 * sizeof(size_type);
     total_size += data_size * (_max_elem_size);
 
-    if (alloc_p != nullptr)
-        _ptr = reinterpret_cast<unsigned char*>(alloc_p->alloc(total_size));
-    else
-        cudaMalloc((void**)&_ptr, total_size);
-    
+    // if (alloc_p != nullptr)
+    //     _ptr = reinterpret_cast<unsigned char*>(alloc_p->alloc(total_size));
+    // else
+    _ptr = (unsigned char *)malloc(total_size);
     memset(_ptr, 0x00, _capacity * sizeof(size_type));
 }
 
@@ -34,7 +33,7 @@ DeviceHashBucket::free(DeviceAllocator *alloc_p) {
     if (alloc_p != nullptr) {
         alloc_p->recyc(_ptr, 0);
     } else {
-        cudaFree(_ptr);
+        ::free(_ptr);
     }
 }
 
@@ -50,7 +49,7 @@ DeviceHashBucket::reallocate(DeviceAllocator *alloc_p) {
     if (alloc_p != nullptr) {
 		new_ptr = reinterpret_cast<unsigned char*>(alloc_p->alloc(curr_size * 2));
     } else {
-        cudaMalloc((void**)&new_ptr, curr_size * 2);
+        new_ptr = (unsigned char*)malloc(curr_size * 2);
     }
 
     // copying
@@ -73,7 +72,7 @@ DeviceHashBucket::reallocate(DeviceAllocator *alloc_p) {
     // chage the capacity
     atomicExch(&_capacity, new_cap);
     atomicExch(&_read_num, 0);
-    cudaFree(_ptr);
+    ::free(_ptr);
     _ptr = new_ptr;
 }
 

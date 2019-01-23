@@ -312,9 +312,20 @@ createDeviceHashTable(
       uint32_t max_val_size,
       DeviceAllocator *alloc_p) {
     uint32_t bkt_size = max_elem_cnt / bkt_cnt;
+    size_t temp;
 
     uint32_t total_size = sizeof(DeviceHashTable) + bkt_cnt * sizeof(DeviceHashBucket);
     HANDLE_ERROR(cudaMalloc((void**)&dht, total_size));
+
+    size_t total_bkt_size = bkt_cnt * bkt_size * (max_key_size + max_val_size + 3 * sizeof(uint32_t));
+    // printf("%d\n", total_bkt_size);
+    cudaThreadGetLimit(&temp, cudaLimitMallocHeapSize);
+    if (total_bkt_size * 8 > temp) {
+        HANDLE_ERROR( cudaThreadSetLimit(cudaLimitMallocHeapSize, total_bkt_size * 8) );
+        cudaThreadGetLimit(&temp, cudaLimitMallocHeapSize);
+        // printf("actual: %d\n", temp);
+    }
+
 
     unsigned char *ptr = reinterpret_cast<unsigned char *>(dht);
     ptr += sizeof(DeviceHashTable);
