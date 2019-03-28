@@ -2,4 +2,4 @@
 
 *huangjiahua*
 
-A hash table data structure on Nvida CUDA GPU.
+A hash table data structure on Nvidia CUDA GPU.
